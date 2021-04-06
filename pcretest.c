@@ -1884,7 +1884,11 @@ for (;;)
     newline, so we must put it back again, to be compatible with fgets(). */
 
 #if defined(SUPPORT_LIBREADLINE) || defined(SUPPORT_LIBEDIT)
+#ifdef __OS2__  //our isatty() is buggy see libc issue #105
+    if (f == stdin)
+#else
     if (isatty(fileno(f)))
+#endif
       {
       size_t len;
       char *s = readline(prompt);
@@ -3168,7 +3172,7 @@ while (argc > 1 && argv[op][0] == '-')
       ((stack_size = get_value((pcre_uint8 *)argv[op+1], &endptr)),
         *endptr == 0))
     {
-#if defined(_WIN32) || defined(WIN32) || defined(__minix) || defined(NATIVE_ZOS) || defined(__VMS)
+#if defined(_WIN32) || defined(WIN32) || defined(__minix) || defined(NATIVE_ZOS) || defined(__VMS) || defined(__OS2__)
     printf("PCRE: -S not supported on this OS\n");
     exit(1);
 #else
