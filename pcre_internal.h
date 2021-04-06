@@ -146,7 +146,7 @@ exported symbols. That's why, in the non-Windows case, we set PCRE_EXP_DEFN and
 PCRE_EXP_DATA_DEFN only if they are not already set. */
 
 #ifndef PCRE_EXP_DECL
-#  ifdef _WIN32
+#  if defined(_WIN32) || defined(__OS2__)
 #    ifndef PCRE_STATIC
 #      define PCRE_EXP_DECL       extern __declspec(dllexport)
 #      define PCRE_EXP_DEFN       __declspec(dllexport)
