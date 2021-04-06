@@ -115,6 +115,11 @@ input mode under Windows. */
 #if defined NATIVE_ZOS         /* z/OS uses non-binary I/O */
 #define INPUT_MODE   "r"
 #define OUTPUT_MODE  "w"
+#elif defined(__OS2__)
+#include <io.h>                /* For _setmode() */
+#include <fcntl.h>             /* For _O_BINARY */
+#define INPUT_MODE   "r"
+#define OUTPUT_MODE  "wb"
 #else
 #define INPUT_MODE   "rb"
 #define OUTPUT_MODE  "wb"
@@ -3076,6 +3081,9 @@ it set 0x8000, but then I was advised that _O_BINARY was better. */
 #if defined(_WIN32) || defined(WIN32)
 _setmode( _fileno( stdout ), _O_BINARY );
 #endif
+#if defined(__OS2__)
+setmode( fileno( stdout ), O_BINARY );
+#endif
 
 /* Get the version number: both pcre_version() and pcre16_version() give the
 same answer. We just need to ensure that we call one that is available. */
@@ -3172,7 +3180,7 @@ while (argc > 1 && argv[op][0] == '-')
       ((stack_size = get_value((pcre_uint8 *)argv[op+1], &endptr)),
         *endptr == 0))
     {
-#if defined(_WIN32) || defined(WIN32) || defined(__minix) || defined(NATIVE_ZOS) || defined(__VMS) || defined(__OS2__)
+#if defined(_WIN32) || defined(WIN32) || defined(__minix) || defined(NATIVE_ZOS) || defined(__VMS)
     printf("PCRE: -S not supported on this OS\n");
     exit(1);
 #else
@@ -3180,12 +3188,14 @@ while (argc > 1 && argv[op][0] == '-')
     struct rlimit rlim;
     getrlimit(RLIMIT_STACK, &rlim);
     rlim.rlim_cur = stack_size * 1024 * 1024;
+#ifndef __OS2__
     rc = setrlimit(RLIMIT_STACK, &rlim);
     if (rc != 0)
       {
     printf("PCRE: setrlimit() failed with error %d\n", rc);
     exit(1);
       }
+#endif
     op++;
     argc--;
 #endif

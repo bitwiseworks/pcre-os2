@@ -530,7 +530,7 @@ echo "---------------------------- Test 109 -----------------------------" >>tes
 echo "RC=$?" >>testtrygrep
 
 # Now compare the results.
-
+dos2unix -f testtrygrep
 $cf $srcdir/testdata/grepoutput testtrygrep
 if [ $? != 0 ] ; then exit 1; fi
 
