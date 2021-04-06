@@ -104,7 +104,57 @@ SLJIT_API_FUNC_ATTRIBUTE void SLJIT_FUNC sljit_release_lock(void)
 
 #endif /* SLJIT_UTIL_GLOBAL_LOCK */
 
-#else /* _WIN32 */
+#elif defined(__OS2__)
+
+/* Preserve BOOL definition in pcre2_internal.h */
+#define BOOL __OS2_BOOL
+
+#define INCL_BASE
+#include <os2.h>
+
+#undef BOOL
+
+#if (defined SLJIT_EXECUTABLE_ALLOCATOR && SLJIT_EXECUTABLE_ALLOCATOR)
+
+static HMTX allocator_mutex = NULLHANDLE;
+
+static SLJIT_INLINE void allocator_grab_lock(void)
+{
+	/* No idea what to do if an error occures. Static mutexes should never fail... */
+	if (allocator_mutex == NULLHANDLE)
+		DosCreateMutexSem(NULL, &allocator_mutex, 0, TRUE);
+	else
+		DosRequestMutexSem(allocator_mutex, SEM_INDEFINITE_WAIT);
+}
+
+static SLJIT_INLINE void allocator_release_lock(void)
+{
+	DosReleaseMutexSem(allocator_mutex);
+}
+
+#endif /* SLJIT_EXECUTABLE_ALLOCATOR */
+
+#if (defined SLJIT_UTIL_GLOBAL_LOCK && SLJIT_UTIL_GLOBAL_LOCK)
+
+static HMTX global_mutex = NULLHANDLE;
+
+SLJIT_API_FUNC_ATTRIBUTE void SLJIT_FUNC sljit_grab_lock(void)
+{
+	/* No idea what to do if an error occures. Static mutexes should never fail... */
+	if (global_mutex == NULLHANDLE)
+		DosCreateMutexSem(NULL, &global_mutex, 0, TRUE);
+	else
+		DosRequestMutexSem(global_mutex, SEM_INDEFINITE_WAIT);
+}
+
+SLJIT_API_FUNC_ATTRIBUTE void SLJIT_FUNC sljit_release_lock(void)
+{
+	DosReleaseMutexSem(global_mutex);
+}
+
+#endif /* SLJIT_UTIL_GLOBAL_LOCK */
+
+#else /* __OS2__ */
 
 #if (defined SLJIT_EXECUTABLE_ALLOCATOR && SLJIT_EXECUTABLE_ALLOCATOR)
 
@@ -142,7 +192,7 @@ SLJIT_API_FUNC_ATTRIBUTE void SLJIT_FUNC sljit_release_lock(void)
 
 #endif /* SLJIT_UTIL_GLOBAL_LOCK */
 
-#endif /* _WIN32 */
+#endif /* __OS2__ */
 
 /* ------------------------------------------------------------------------ */
 /*  Stack                                                                   */
@@ -152,7 +202,7 @@ SLJIT_API_FUNC_ATTRIBUTE void SLJIT_FUNC sljit_release_lock(void)
 
 #ifdef _WIN32
 #include "windows.h"
-#else
+#elif !defined(__OS2__)
 /* Provides mmap function. */
 #include <sys/types.h>
 #include <sys/mman.h>
@@ -226,6 +276,13 @@ SLJIT_API_FUNC_ATTRIBUTE struct sljit_stack* SLJIT_FUNC sljit_allocate_stack(slj
 		GetSystemInfo(&si);
 		sljit_page_align = si.dwPageSize - 1;
 	}
+#elif defined(__OS2__)
+	if (!sljit_page_align) {
+		ULONG pgsize = 0;
+		if (DosQuerySysInfo(QSV_PAGE_SIZE, QSV_PAGE_SIZE, &pgsize, sizeof(pgsize)))
+			pgsize = 4096; /* Should never happen. */
+		sljit_page_align = pgsize - 1;
+	}
 #else
 	if (!sljit_page_align) {
 		sljit_page_align = sysconf(_SC_PAGESIZE);
@@ -250,6 +307,22 @@ SLJIT_API_FUNC_ATTRIBUTE struct sljit_stack* SLJIT_FUNC sljit_allocate_stack(slj
 		return NULL;
 	}
 
+	stack->min_start = (sljit_u8 *)ptr;
+	stack->end = stack->min_start + max_size;
+	stack->start = stack->end;
+
+	if (sljit_stack_resize(stack, stack->end - start_size) == NULL) {
+		sljit_free_stack(stack, allocator_data);
+		return NULL;
+	}
+#elif defined(__OS2__)
+	APIRET arc = DosAllocMem(&ptr, max_size, PAG_COMMIT | PAG_READ | PAG_WRITE | OBJ_ANY);
+	if (arc)
+		arc = DosAllocMem(&ptr, max_size, PAG_COMMIT | PAG_READ | PAG_WRITE);
+	if (arc) {
+		SLJIT_FREE(stack, allocator_data);
+		return NULL;
+	}
 	stack->min_start = (sljit_u8 *)ptr;
 	stack->end = stack->min_start + max_size;
 	stack->start = stack->end;
@@ -289,6 +362,8 @@ SLJIT_API_FUNC_ATTRIBUTE void SLJIT_FUNC sljit_free_stack(struct sljit_stack *st
 	SLJIT_UNUSED_ARG(allocator_data);
 #ifdef _WIN32
 	VirtualFree((void*)stack->min_start, 0, MEM_RELEASE);
+#elif defined(__OS2__)
+	DosFreeMem((PVOID)stack->min_start);
 #else
 	munmap((void*)stack->min_start, stack->end - stack->min_start);
 #endif
@@ -313,6 +388,19 @@ SLJIT_API_FUNC_ATTRIBUTE sljit_u8 *SLJIT_FUNC sljit_stack_resize(struct sljit_st
 		}
 		else {
 			if (!VirtualFree((void*)aligned_old_start, aligned_new_start - aligned_old_start, MEM_DECOMMIT))
+				return NULL;
+		}
+	}
+#elif defined(__OS2__)
+	aligned_new_start = (sljit_uw)new_start & ~sljit_page_align;
+	aligned_old_start = ((sljit_uw)stack->start) & ~sljit_page_align;
+	if (aligned_new_start != aligned_old_start) {
+		if (aligned_new_start < aligned_old_start) {
+			if (DosSetMem((PVOID)aligned_new_start, aligned_old_start - aligned_new_start, PAG_COMMIT | PAG_DEFAULT))
+				return NULL;
+		}
+		else {
+			if (DosSetMem((PVOID)aligned_old_start, aligned_new_start - aligned_old_start, PAG_DECOMMIT))
 				return NULL;
 		}
 	}
