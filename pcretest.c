@@ -1889,8 +1889,8 @@ for (;;)
     newline, so we must put it back again, to be compatible with fgets(). */
 
 #if defined(SUPPORT_LIBREADLINE) || defined(SUPPORT_LIBEDIT)
-#ifdef __OS2__  //our isatty() is buggy see libc issue #105
-    if (f == stdin)
+#ifdef __OS2__  // our isatty() is not what nix thinks, so use isterm()
+    if (_isterm(fileno(f)))
 #else
     if (isatty(fileno(f)))
 #endif
